@@ -1,0 +1,267 @@
+library("httpuv")
+library("openssl")
+library("twitteR")
+library("ROAuth")
+library(tm)
+library(SnowballC)
+library(googleVis)
+
+
+t.api.key<-'1oDXZXpnHakszetgnTINubYC6'
+t.api.secret<-'aFTi30Mf7gUOY11lnB0atbdxAHschpMuzGX9HDww5kymcnbG1K'
+t.api.access_token<-'985669390472491009-osWpO8CNzARycn0F5WpNydf9vpQVOfK'
+t.api.access_secret<-'FuMIS5bHav8VY4Etb7NmmFNkv1E0DKqxBtknzcFjG5YYj'
+setup_twitter_oauth(t.api.key, t.api.secret, access_token=t.api.access_token,
+                    access_secret=t.api.access_secret)
+
+
+# choosen 3 largest gainer: QD,MOGU,VNCE
+# choosen 3 largest looser: TLRD,XPO LOGISTICS,SDRL
+
+stockGainer1_tweets1<-searchTwitter('QD',n=100) # % change= 27.38
+stockGainer2_tweets2<-searchTwitter('MOGU',n=100) # % change= 15.17
+stockGainer3_tweets3<-searchTwitter('VNCE',n=100) # change= 10.87
+
+stockLooser1_tweets1<-searchTwitter('TLRD',n=100) # change=- 29.25
+stockLooser2_tweets2<-searchTwitter('xpo logistics',n=100) # change= -21.05
+stockLooser3_tweets3<-searchTwitter('SDRL',n=100) # change= -11.23
+
+Gainer_tweets1<-c(stockGainer1_tweets1,stockGainer2_tweets2,stockGainer3_tweets3)
+Looser_tweets2<-c(stockLooser1_tweets1,stockLooser2_tweets2,stockLooser3_tweets3)
+
+
+getCorpus <- function (tweets) {
+  tweets.text <- lapply(tweets, function(t) {t$getText()}) 
+  data.source <- VectorSource(tweets.text)
+  data.corpus <- Corpus(data.source)
+  return (data.corpus)
+}
+data.corpus1 <- getCorpus(Gainer_tweets1) 
+data.corpus2 <- getCorpus(Looser_tweets2)
+save(list='data.corpus1',file = 'data.corpus1.RData')
+save(list='data.corpus2',file = 'data.corpus2.RData')
+
+
+stopwords("en")
+removeURL <- function(x) {
+  gsub("(http[^ ]*)", "", x) # Remove the URLs from the tweets
+}
+removeNumberWords <- function(x) { gsub("([[:digit:]]+)([[:alnum:]])*", "", x)
+}
+getTransCorpus <- function (data.corpus) {
+  data.corpus <- tm_map(data.corpus, content_transformer(removeURL))
+  data.corpus <- tm_map(data.corpus, content_transformer(removePunctuation))
+  data.corpus <- tm_map(data.corpus, content_transformer(tolower))
+  english.stopwords <- stopwords("en")
+  data.corpus <- tm_map(data.corpus,content_transformer(removeWords),english.stopwords) 
+  data.corpus <- tm_map(data.corpus, content_transformer(removeNumberWords))
+  data.corpus <- tm_map(data.corpus,content_transformer(stemDocument))
+  data.corpus <- tm_map(data.corpus,content_transformer(stripWhitespace))
+  return (data.corpus)
+}
+data.Trans.corpus1 <- getTransCorpus(data.corpus1)
+data.Trans.corpus2 <- getTransCorpus(data.corpus2)
+
+tdm1 <- TermDocumentMatrix(data.Trans.corpus1) # Build the term document matrix 
+tdm2 <- TermDocumentMatrix(data.Trans.corpus2) # Build the term document matrix
+
+save(list='tdm1',file = 'tdm1.RData')
+save(list='tdm2',file = 'tdm2.RData')
+
+
+FFT1 <- findFreqTerms(tdm1, lowfreq=3) # frequent terms 
+FFT2 <- findFreqTerms(tdm2, lowfreq=3) # frequent terms
+wordFreq1 <- rowSums(as.matrix(tdm1))
+wordFreq2 <- rowSums(as.matrix(tdm2))
+
+cbind(wordFreq1[1:20])
+
+cbind(wordFreq2[1:20])
+
+library(wordcloud)
+palette <- brewer.pal(8,"Dark2")
+set.seed(137)
+FFT1 # Display Words in Console
+wordcloud(words=names(wordFreq1), freq=wordFreq1, min.freq=3, random.order=F,colors=palette)
+FFT2 # Display Words in Console
+wordcloud(words=names(wordFreq2), freq=wordFreq2, min.freq=3, random.order=F,colors=palette)
+
+sentiment <- function(text, pos.words, neg.words) {
+  text <- gsub('[[:punct:]]', '', text)
+  text <- gsub('[[:cntrl:]]', '', text)
+  text <- gsub('\\d+', '', text)
+  text <- tolower(text)
+  # split the text into a vector of words
+  words <- strsplit(text, '\\s+')
+  words <- unlist(words)
+  # find which words are positive
+  pos.matches <- match(words, pos.words)
+  pos.matches <- !is.na(pos.matches)
+  # find which words are negative
+  neg.matches <- match(words, neg.words)
+  neg.matches <- !is.na(neg.matches)
+  # calculate the sentiment score
+  p<-sum(pos.matches)
+  n<-sum(neg.matches)
+  if(p==0 & n==0)
+    return(NA)
+  else
+    return(p-n)
+
+}
+
+
+pos.words=scan('DATA/positive-words.txt',what = 'character',comment.char = ';')
+neg.words=scan('DATA/negative-words.txt',what = 'character',comment.char = ';')
+
+# Lexicons
+
+
+head(pos.words)
+head(neg.words)
+
+save(list="Gainer_tweets1",file ="Gainer.RData" )
+save(list="Looser_tweets2",file ="Looser.RData" )
+
+load(file="Gainer.RData")
+load(file="Looser.RData")
+sink(tempfile())
+
+
+gainer.texts <- 
+  lapply(Gainer_tweets1, 
+         function(t) {
+           iconv(t$getText(), 
+                 "latin1", "ASCII", sub="")
+         })
+
+scores_Gainer <- sapply(gainer.texts, 
+                 sentiment, 
+                 pos.words, neg.words)
+looser.texts <- 
+  lapply(Looser_tweets2, 
+         function(t) {
+           iconv(t$getText(), 
+                 "latin1", "ASCII", sub="")
+         })
+scores_Looser <- sapply(looser.texts, 
+                        sentiment, 
+                        pos.words, neg.words)
+table(scores_Gainer)
+table(scores_Looser)
+
+
+barplot(table(scores_Gainer), 
+        xlab="Score",main="gainer", ylab="Count",
+        col="cyan")
+
+barplot(table(scores_Looser), 
+        xlab="Score", main="looser",ylab="Count",
+        col="red")
+
+# • Make necessary addition (if needed) to the lexicons (the positive and negative word lists),
+# and compute the sentiment score of all the tweets for each gainers (losers) set.
+
+
+# • Plot a bar chart of the sentiment. Use googleVis R Package to create a candlestick plot of
+# the stock prices for the stocks used for this project and compare them with a chart or table
+# obtained from an online financial source.
+
+sentiment.na <- function(text, pos.words, neg.words) {
+  text <- gsub('[[:punct:]]', '', text)
+  text <- gsub('[[:cntrl:]]', '', text)
+  text <- gsub('\\d+', '', text)
+  text <- tolower(text)
+  # split the text into a vector of words
+  words <- strsplit(text, '\\s+')
+  words <- unlist(words)
+  # find which words are positive
+  pos.matches <- match(words, pos.words)
+  pos.matches <- !is.na(pos.matches)
+  # find which words are negative
+  neg.matches <- match(words, neg.words)
+  neg.matches <- !is.na(neg.matches)
+  # calculate the sentiment score
+  p <- sum(pos.matches)
+  n <- sum(neg.matches)
+  if (p == 0 & n == 0)
+    return (NA)
+  else
+    return (p - n)
+}
+
+scores_Gainer.na <- sapply(gainer.texts, 
+                    sentiment.na, 
+                    pos.words, neg.words)
+
+
+scores_Looser.na <- sapply(looser.texts, 
+                        sentiment.na, 
+                        pos.words, neg.words)
+
+table(scores_Gainer.na)
+table(scores_Looser.na)
+
+barplot(table(scores_Gainer.na), 
+        xlab="Score", ylab="Count",
+        ylim=c(0,40), col="cyan")
+
+barplot(table(scores_Looser.na), 
+        xlab="Score", ylab="Count",
+        ylim=c(0,40), col="red")
+
+# Data frame of scores and tweets
+
+Gainer_tweets1.vector <- sapply(gainer.texts,
+                      function (t) {(t)})
+x <- data.frame(Score=scores_Gainer.na, Text=Gainer_tweets1.vector)
+View(x)
+
+Looser_tweets2.vector <- sapply(looser.texts,
+                                function (t) {(t)})
+y <- data.frame(Score=scores_Looser.na, Text=Looser_tweets2.vector)
+View(y)
+
+# candle stick are typicall used for stock market data for the opening and closing price
+# change of the price of the stock market.
+
+
+# Candlestick chart
+
+# for the candlstick chart we need to create a dataframe
+
+gainer=data.frame(Gainers=c("QUDIAN","MOGU ADR","VINCE HOLDING"),
+                  Open=c(6.30,14.28,11.14),Close=c(5.26,14.50,10.15),
+                  low=c(5.86,14.14,10.94),high=c(6.80,17.13,13.50))
+# CLOSE IS PRIOR YEAR CLOSE(12/12/18)
+# LOW AND HIGH RANGE(range for the day)
+chartGainer <- 
+  gvisCandlestickChart(gainer, xvar="Gainers", 
+                       low="low", high="high",
+                       open="Open", close="Close",
+                       options=list(
+                         width=700,
+                         height=400,
+                         legend='none'))
+
+plot(chartGainer)
+
+cat(chartGainer$html$chartGainer, file = "chartGainer.html")
+
+
+looser=data.frame(Loosers=c("TAILORED BRANDS","XPO Logistics","SEADRILL"),
+                  Open=c(14.81,58.01,11.71),Close=c(20.14,60.27,12.15),
+                  low=c(14,45.82,10.68),high=c(15.20,59.94,11.71))
+
+chartLooser <- 
+  gvisCandlestickChart(looser, xvar="Loosers", 
+                       low="low", high="high",
+                       open="Open", close="Close",
+                       options=list(
+                         width=700,
+                         height=400,
+                         legend='none'))
+
+plot(chartLooser)
+
+cat(chartLooser$html$chartLooser, file = "chartLooser.html")
